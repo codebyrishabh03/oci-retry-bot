@@ -43,7 +43,10 @@ jobs:
       - name: Attempt instance launch
         if: steps.check.outputs.existing == ''
         run: |
-          echo "${{ secrets.OCI_SSH_PUBLIC_KEY }}" > /tmp/ssh_key.pub
+          printf '%s\n' "${{ secrets.OCI_SSH_PUBLIC_KEY }}" | tr -d '\r' > /tmp/ssh_key.pub
+          echo "--- ssh key file (masked by GitHub, sanity-check length/lines only) ---"
+          wc -l /tmp/ssh_key.pub
+          wc -c /tmp/ssh_key.pub
           oci compute instance launch \
             --compartment-id "${{ secrets.OCI_TENANCY_ID }}" \
             --availability-domain "${{ vars.OCI_AVAILABILITY_DOMAIN }}" \
