@@ -1,12 +1,14 @@
 name: OCI ARM Catcher
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch: {}
 
 permissions:
   actions: write
+
+concurrency:
+  group: oci-arm-catcher
+  cancel-in-progress: false
 
 jobs:
   try-create:
@@ -46,7 +48,6 @@ jobs:
       - name: Attempt instance launch
         id: launch
         if: steps.check.outputs.existing == ''
-        continue-on-error: true
         run: |
           printf '%s' "${{ secrets.OCI_SSH_PUBLIC_KEY }}" | tr -d '\r\n' > /tmp/ssh_key.pub
           echo "--- ssh key file (masked by GitHub, sanity-check length/lines only) ---"
@@ -64,13 +65,13 @@ jobs:
             --ssh-authorized-keys-file /tmp/ssh_key.pub \
             --boot-volume-size-in-gbs "${{ vars.OCI_BOOT_VOLUME_GBS }}"
 
-      # GitHub's native `schedule:` cron trigger is known to be unreliable
-      # (can silently not fire for long stretches, especially on new workflows).
-      # So instead of relying on it alone, this job re-triggers itself when it
-      # finishes -- as long as we're still trying (no instance yet, and this
-      # attempt didn't succeed). This is what actually paces the retries.
+      # GitHub's native `schedule:` cron trigger is unreliable (can silently
+      # not fire for long stretches), so we don't use it at all -- this job
+      # re-triggers itself instead. `always()` is needed here because the
+      # launch step above is allowed to fail (no continue-on-error), which by
+      # default would skip every later step; always() overrides that.
       - name: Reschedule next attempt
-        if: steps.check.outputs.existing == '' && steps.launch.outcome != 'success'
+        if: always() && steps.check.outputs.existing == '' && steps.launch.outcome == 'failure'
         run: |
           sleep 60
           curl -s -X POST \
