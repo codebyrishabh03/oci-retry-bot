@@ -5,6 +5,9 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch: {}
 
+permissions:
+  actions: write
+
 jobs:
   try-create:
     runs-on: ubuntu-latest
@@ -41,7 +44,9 @@ jobs:
           fi
 
       - name: Attempt instance launch
+        id: launch
         if: steps.check.outputs.existing == ''
+        continue-on-error: true
         run: |
           printf '%s' "${{ secrets.OCI_SSH_PUBLIC_KEY }}" | tr -d '\r\n' > /tmp/ssh_key.pub
           echo "--- ssh key file (masked by GitHub, sanity-check length/lines only) ---"
@@ -58,3 +63,18 @@ jobs:
             --assign-public-ip true \
             --ssh-authorized-keys-file /tmp/ssh_key.pub \
             --boot-volume-size-in-gbs "${{ vars.OCI_BOOT_VOLUME_GBS }}"
+
+      # GitHub's native `schedule:` cron trigger is known to be unreliable
+      # (can silently not fire for long stretches, especially on new workflows).
+      # So instead of relying on it alone, this job re-triggers itself when it
+      # finishes -- as long as we're still trying (no instance yet, and this
+      # attempt didn't succeed). This is what actually paces the retries.
+      - name: Reschedule next attempt
+        if: steps.check.outputs.existing == '' && steps.launch.outcome != 'success'
+        run: |
+          sleep 60
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/retry.yml/dispatches" \
+            -d "{\"ref\":\"${{ github.ref_name }}\"}"
