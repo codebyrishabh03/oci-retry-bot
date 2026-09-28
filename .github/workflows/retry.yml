@@ -43,7 +43,7 @@ jobs:
       - name: Attempt instance launch
         if: steps.check.outputs.existing == ''
         run: |
-          printf '%s\n' "${{ secrets.OCI_SSH_PUBLIC_KEY }}" | tr -d '\r' > /tmp/ssh_key.pub
+          printf '%s' "${{ secrets.OCI_SSH_PUBLIC_KEY }}" | tr -d '\r\n' > /tmp/ssh_key.pub
           echo "--- ssh key file (masked by GitHub, sanity-check length/lines only) ---"
           wc -l /tmp/ssh_key.pub
           wc -c /tmp/ssh_key.pub
