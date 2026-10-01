@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install OCI CLI
-        run: pip install oci-cli
+        run: pip install --retries 5 --timeout 60 oci-cli
 
       - name: Configure OCI credentials
         run: |
@@ -67,14 +67,14 @@ jobs:
 
       # GitHub's native `schedule:` cron trigger is unreliable (can silently
       # not fire for long stretches), so we don't use it at all -- this job
-      # re-triggers itself instead. `always()` is needed here because the
-      # launch step above is allowed to fail (no continue-on-error), which by
-      # default would skip every later step; always() overrides that.
+      # re-triggers itself instead. `always()` overrides the default skip-after-
+      # failure. The condition is "launch didn't succeed" (not "launch failed")
+      # so a failure in ANY earlier step (e.g. pip timeout) can't end the chain.
       - name: Reschedule next attempt
-        if: always() && steps.check.outputs.existing == '' && steps.launch.outcome == 'failure'
+        if: always() && steps.check.outputs.existing == '' && steps.launch.outcome != 'success'
         run: |
           sleep 60
-          curl -s -X POST \
+          curl -sf --retry 5 --retry-delay 10 --retry-all-errors -X POST \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/retry.yml/dispatches" \
