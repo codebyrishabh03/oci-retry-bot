@@ -1,0 +1,32 @@
+name: Watchdog
+
+# The retry chain lives inside its own job, so if GitHub fails to start that
+# job (e.g. "runner not acquired") nothing re-triggers it. This restarts it.
+# Duplicate dispatches are harmless: retry.yml's concurrency group keeps only
+# one pending run, so extra chains collapse.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  actions: write
+
+jobs:
+  restart-if-dead:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restart retry chain if nothing is queued or running
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          repo="$GITHUB_REPOSITORY"
+          active=$(gh run list --repo "$repo" --workflow retry.yml --limit 10 --json status \
+            --jq '[.[] | select(.status != "completed")] | length')
+          last=$(gh run list --repo "$repo" --workflow retry.yml --status completed --limit 1 --json conclusion \
+            --jq '.[0].conclusion // ""')
+          echo "active=$active last_completed=$last"
+          if [ "$active" != "0" ]; then echo "chain alive"; exit 0; fi
+          if [ "$last" = "success" ]; then echo "last run succeeded (instance exists) - not restarting"; exit 0; fi
+          echo "chain dead - restarting"
+          gh workflow run retry.yml --repo "$repo" --ref "${{ github.ref_name }}"
